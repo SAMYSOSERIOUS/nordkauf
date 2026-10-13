@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NordKauf — Revenue calendar (Data-Driven Content)</title>
+<style>
+  html,body{margin:0;font-family:"Segoe UI",Arial,sans-serif;color:#25292e;background:#fff}
+  #wrap{padding:10px 14px}
+  h1{font-size:15px;font-weight:600;margin:0 0 2px}
+  #sub{font-size:12px;color:#6b7280;margin-bottom:8px}
+  #msg{font-size:13px;color:#6b7280;padding:20px 0}
+  .yl{font-size:12px;font-weight:600;fill:#25292e}
+  .dl,.ml{font-size:10px;fill:#6b7280}
+  #legend{font-size:11px;color:#6b7280;margin-top:6px}
+  .sw{display:inline-block;width:11px;height:11px;margin:0 3px 0 8px;vertical-align:-1px;border-radius:2px}
+  #tip{position:fixed;pointer-events:none;background:#25292e;color:#fff;font-size:12px;padding:4px 7px;border-radius:3px;display:none}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>Every day of three fiscal years — one square per day</h1>
+  <div id="sub">Darker = more revenue. Red outline = a day below half of the typical day. Hover a square for the date and value.</div>
+  <div id="chart"><div id="msg">Waiting for data. In Roles, add: 1. date · 2. REVENUE (table DAILY_REVENUE).</div></div>
+  <div id="legend"></div>
+</div>
+<div id="tip"></div>
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var COLORS = ["#e8f0fb","#bcd3f2","#86b0e6","#4a86d4","#0766D1","#044a99"];
+  function el(tag, attrs, text) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  /* VA may send a date as text, as a SAS date (days since 1960-01-01) or as milliseconds */
+  function toDate(v) {
+    if (v instanceof Date) return v;
+    if (typeof v === "number") {
+      if (Math.abs(v) > 1e9) return new Date(v);
+      return new Date(Date.UTC(1960, 0, 1) + v * 86400000);
+    }
+    var s = String(v).trim();
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    m = s.match(/^(\d{1,2})([A-Za-z]{3})(\d{4})$/);           /* 14MAR2025 */
+    if (m) {
+      var mi = MONTHS.map(function (x) { return x.toUpperCase(); }).indexOf(m[2].toUpperCase());
+      if (mi >= 0) return new Date(Date.UTC(+m[3], mi, +m[1]));
+    }
+    var d = new Date(s);
+    return isNaN(d) ? null : new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  }
+  function iso(d) { return d.toISOString().slice(0, 10); }
+  function money(v) { return "€" + Math.round(v).toLocaleString("en-US"); }
+  function median(a) { var b = a.slice().sort(function (x, y) { return x - y; }); var n = b.length; return n % 2 ? b[(n - 1) / 2] : (b[n / 2 - 1] + b[n / 2]) / 2; }
+  var tip = document.getElementById("tip");
+
+  function draw(rows) {
+    var box = document.getElementById("chart");
+    box.innerHTML = "";
+    if (!rows || !rows.length || rows[0].length < 2) {
+      box.innerHTML = '<div id="msg">Two roles are needed, in this order: date, REVENUE.</div>'; return;
+    }
+    var days = [];
+    rows.forEach(function (r) { var d = toDate(r[0]), v = Number(r[1]); if (d && isFinite(v)) days.push({ d: d, v: v }); });
+    if (!days.length) { box.innerHTML = '<div id="msg">The first role must be a date.</div>'; return; }
+    var vals = days.map(function (x) { return x.v; });
+    var med = median(vals), lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var cuts = [0.2, 0.4, 0.6, 0.8, 0.95].map(function (q) { var b = vals.slice().sort(function (x, y) { return x - y; }); return b[Math.floor(q * (b.length - 1))]; });
+    function color(v) { var i = 0; while (i < cuts.length && v > cuts[i]) i++; return COLORS[i]; }
+
+    /* group by fiscal year (Sep–Aug) */
+    var fy = {};
+    days.forEach(function (x) {
+      var y = x.d.getUTCFullYear() + (x.d.getUTCMonth() >= 8 ? 1 : 0);
+      (fy[y] = fy[y] || []).push(x);
+    });
+    var years = Object.keys(fy).map(Number).sort();
+    var C = 13, G = 2, L = 34, T = 16, rowH = 7 * (C + G) + 30;
+    var W = L + 54 * (C + G) + 10, H = years.length * rowH + 4;
+    var svg = el("svg", { width: W, height: H, viewBox: "0 0 " + W + " " + H });
+    var flagged = 0;
+    years.forEach(function (y, yi) {
+      var top = yi * rowH + T;
+      var start = new Date(Date.UTC(y - 1, 8, 1));                 /* 1 Sep */
+      var startDow = (start.getUTCDay() + 6) % 7;                   /* Monday = 0 */
+      svg.appendChild(el("text", { x: 0, y: top - 4, "class": "yl" }, "FY" + y));
+      ["Mon", "", "Wed", "", "Fri", "", "Sun"].forEach(function (t, i) {
+        if (t) svg.appendChild(el("text", { x: L - 4, y: top + i * (C + G) + 10, "text-anchor": "end", "class": "dl" }, t));
+      });
+      var lastMonth = -1;
+      fy[y].forEach(function (x) {
+        var off = Math.round((x.d - start) / 86400000) + startDow;
+        var col = Math.floor(off / 7), row = off % 7;
+        var cx = L + col * (C + G), cy = top + row * (C + G);
+        var low = x.v < 0.5 * med;
+        if (low) flagged++;
+        var r = el("rect", { x: cx, y: cy, width: C, height: C, rx: 2, fill: color(x.v),
+          stroke: low ? "#D03B3B" : "none", "stroke-width": low ? 2 : 0 });
+        r.addEventListener("mousemove", function (e) {
+          tip.style.display = "block"; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px";
+          tip.textContent = iso(x.d) + " · " + money(x.v) + (low ? " · below half of a typical day" : "");
+        });
+        r.addEventListener("mouseleave", function () { tip.style.display = "none"; });
+        svg.appendChild(r);
+        var m = x.d.getUTCMonth();
+        if (m !== lastMonth && x.d.getUTCDate() <= 7) {
+          svg.appendChild(el("text", { x: cx, y: top + 7 * (C + G) + 10, "class": "ml" }, MONTHS[m]));
+          lastMonth = m;
+        }
+      });
+    });
+    box.appendChild(svg);
+    document.getElementById("legend").innerHTML =
+      "Less" + COLORS.map(function (c) { return '<span class="sw" style="background:' + c + '"></span>'; }).join("") + " More" +
+      '<span class="sw" style="background:#fff;border:2px solid #D03B3B"></span>below half of a typical day (' + money(med * 0.5) + "): " + flagged + " day(s)" +
+      " · typical day " + money(med) + " · " + days.length + " days";
+  }
+  window.addEventListener("message", function (event) {
+    var m = event && event.data;
+    if (m && typeof m === "object" && Array.isArray(m.data)) draw(m.data);
+  }, false);
+})();
+</script>
+</body>
+</html>
