@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NordKauf — Revenue and returns (Data-Driven Content)</title>
+<style>
+  html,body{margin:0;height:100%;font-family:"Segoe UI",Arial,sans-serif;color:#25292e;background:#fff}
+  #wrap{padding:10px 14px}
+  h1{font-size:15px;font-weight:600;margin:0 0 2px}
+  #sub{font-size:12px;color:#6b7280;margin-bottom:8px}
+  #msg{font-size:13px;color:#6b7280;padding:20px 0}
+  .lab{font-size:12px;fill:#25292e}
+  .val{font-size:11px;fill:#25292e}
+  .legend{font-size:11px;color:#6b7280;margin-top:6px}
+  .sw{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px;vertical-align:-1px}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1 id="title">Revenue by category — red when returns pass 5%</h1>
+  <div id="sub">Data-Driven Content: this chart is a web page, fed by the report.</div>
+  <div id="chart"><div id="msg">Waiting for data. In Roles, add: 1. Category · 2. Revenue · 3. Return Rate.</div></div>
+  <div class="legend"><span class="sw" style="background:#0766D1"></span>return rate 5% or less<span class="sw" style="background:#D03B3B"></span>return rate above 5%</div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var LIMIT = 0.05;
+  function fmtMoney(v) {
+    if (v >= 1e6) return "€" + (v / 1e6).toFixed(2) + "M";
+    if (v >= 1e3) return "€" + (v / 1e3).toFixed(0) + "k";
+    return "€" + Math.round(v);
+  }
+  function fmtPct(v) { return (v * 100).toFixed(1) + "%"; }
+  function el(tag, attrs, text) {
+    var n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  function draw(rows, cols) {
+    var box = document.getElementById("chart");
+    box.innerHTML = "";
+    if (!rows || !rows.length) { box.innerHTML = '<div id="msg">No rows received.</div>'; return; }
+    if (rows[0].length < 3) {
+      box.innerHTML = '<div id="msg">Three roles are needed, in this order: Category, Revenue, Return Rate.</div>';
+      return;
+    }
+    var data = rows.map(function (r) { return { c: String(r[0]), v: Number(r[1]), rr: Number(r[2]) }; })
+                   .sort(function (a, b) { return b.v - a.v; });
+    var max = Math.max.apply(null, data.map(function (d) { return d.v; })) || 1;
+    var W = Math.max(320, (window.innerWidth || 600) - 30), L = 120, R = 150, rowH = 30;
+    var H = data.length * rowH + 6;
+    var svg = el("svg", { width: W, height: H, viewBox: "0 0 " + W + " " + H });
+    data.forEach(function (d, i) {
+      var y = i * rowH + 4, w = Math.max(1, (W - L - R) * d.v / max);
+      svg.appendChild(el("text", { x: L - 8, y: y + 17, "text-anchor": "end", "class": "lab" }, d.c));
+      svg.appendChild(el("rect", { x: L, y: y, width: w, height: rowH - 8, rx: 2,
+        fill: d.rr > LIMIT ? "#D03B3B" : "#0766D1" }));
+      svg.appendChild(el("text", { x: L + w + 6, y: y + 17, "class": "val" },
+        fmtMoney(d.v) + " · returns " + fmtPct(d.rr)));
+    });
+    box.appendChild(svg);
+  }
+  window.addEventListener("message", function (event) {
+    var m = event && event.data;
+    if (m && typeof m === "object" && Array.isArray(m.data)) draw(m.data, m.columns);
+  }, false);
+})();
+</script>
+</body>
+</html>
