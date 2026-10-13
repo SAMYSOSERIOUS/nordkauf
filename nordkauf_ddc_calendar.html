@@ -22,6 +22,7 @@
   <div id="sub">Darker = more revenue. Red outline = a day below half of the typical day. Hover a square for the date and value.</div>
   <div id="chart"><div id="msg">Waiting for data. In Roles, add: 1. date · 2. REVENUE (table DAILY_REVENUE).</div></div>
   <div id="legend"></div>
+  <div id="dbg" style="font:11px monospace;color:#9aa0a6;margin-top:8px;white-space:pre-wrap"></div>
 </div>
 <div id="tip"></div>
 <script>
@@ -40,12 +41,21 @@
   function toDate(v) {
     if (v instanceof Date) return v;
     if (typeof v === "number") {
-      if (Math.abs(v) > 1e9) return new Date(v);
+      if (Math.abs(v) >= 1e11) return new Date(v);                     /* milliseconds */
+      if (Math.abs(v) >= 1e8) {                                         /* seconds: since 1970 or SAS datetime since 1960 */
+        var d70 = new Date(v * 1000);
+        return d70.getUTCFullYear() > 1990 ? d70 : new Date(Date.UTC(1960, 0, 1) + v * 1000);
+      }
       return new Date(Date.UTC(1960, 0, 1) + v * 86400000);
     }
     var s = String(v).trim();
-    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    var m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);            /* 2025-03-14, 2025/03/14 */
     if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);                         /* 14.03.2025 */
+    if (m) return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);                         /* 03/14/2025 */
+    if (m) return new Date(Date.UTC(+m[3], +m[1] - 1, +m[2]));
+    if (/^-?[\d.,]+$/.test(s)) { var n = Number(s.replace(/,/g, "")); if (isFinite(n)) return toDate(n); }
     m = s.match(/^(\d{1,2})([A-Za-z]{3})(\d{4})$/);           /* 14MAR2025 */
     if (m) {
       var mi = MONTHS.map(function (x) { return x.toUpperCase(); }).indexOf(m[2].toUpperCase());
@@ -59,14 +69,20 @@
   function median(a) { var b = a.slice().sort(function (x, y) { return x - y; }); var n = b.length; return n % 2 ? b[(n - 1) / 2] : (b[n / 2 - 1] + b[n / 2]) / 2; }
   var tip = document.getElementById("tip");
 
-  function draw(rows) {
+  function draw(rows, cols) {
     var box = document.getElementById("chart");
     box.innerHTML = "";
     if (!rows || !rows.length || rows[0].length < 2) {
       box.innerHTML = '<div id="msg">Two roles are needed, in this order: date, REVENUE.</div>'; return;
     }
-    var days = [];
-    rows.forEach(function (r) { var d = toDate(r[0]), v = Number(r[1]); if (d && isFinite(v)) days.push({ d: d, v: v }); });
+    var days = [], bad = 0;
+    rows.forEach(function (r) {
+      var d = toDate(r[0]), v = Number(r[1]);
+      if (d && isFinite(v) && d.getUTCFullYear() > 1990 && d.getUTCFullYear() < 2100) days.push({ d: d, v: v }); else bad++;
+    });
+    var dbg = document.getElementById("dbg");
+    dbg.textContent = bad ? ("Could not read " + bad + " of " + rows.length + " dates. First rows received: " + JSON.stringify(rows.slice(0, 3)) +
+      (cols ? "  Columns: " + JSON.stringify(cols) : "")) : "";
     if (!days.length) { box.innerHTML = '<div id="msg">The first role must be a date.</div>'; return; }
     var vals = days.map(function (x) { return x.v; });
     var med = median(vals), lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
@@ -122,7 +138,7 @@
   }
   window.addEventListener("message", function (event) {
     var m = event && event.data;
-    if (m && typeof m === "object" && Array.isArray(m.data)) draw(m.data);
+    if (m && typeof m === "object" && Array.isArray(m.data)) draw(m.data, m.columns);
   }, false);
 })();
 </script>
